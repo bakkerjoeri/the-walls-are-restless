@@ -389,7 +389,7 @@ const willy = new CreatureCard({
 	name: 'Will \'o the Wisp',
 	type: 'creature',
 	description: 'Reduce the attack of\nnearby creatures by 1.',
-	defense: 6,
+	defense: 3,
 	strength: 1,
 	health: 1,
 });
