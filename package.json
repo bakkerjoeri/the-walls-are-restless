@@ -1,0 +1,30 @@
+{
+	"name": "the-walls-are-restless",
+	"version": "0.0.0",
+	"author": "Joeri Bakker <bakkerjoeri@gmail.com>",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git@github.com:bakkerjoeri/ferromancer.git"
+	},
+	"scripts": {
+		"start": "snowpack dev",
+		"build": "snowpack build",
+		"version": "npm run build && git add -A dist",
+		"postversion": "git push && git push --tags"
+	},
+	"devDependencies": {
+		"@snowpack/plugin-typescript": "^1.2.1",
+		"snowpack": "^3.0.13",
+		"typescript": "^4.2.3"
+	},
+	"dependencies": {
+		"@bakkerjoeri/array-without": "^2.0.2",
+		"@bakkerjoeri/object-without": "^1.0.1",
+		"@bakkerjoeri/repeat": "^1.0.0",
+		"@bakkerjoeri/uuid": "^1.0.0",
+		"dotspace": "^1.1.0",
+		"heks": "^2.7.5",
+		"roll-the-bones": "^1.1.1"
+	}
+}
