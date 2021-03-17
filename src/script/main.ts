@@ -3,11 +3,14 @@ import objectWithout from "@bakkerjoeri/object-without";
 import repeat from "@bakkerjoeri/repeat";
 import { add, multiplyByComponents, multiplyByScalar } from "dotspace";
 import { clearCanvas, Loop, setupCanvas } from "heks";
-import { getRandomNumberInRange } from "roll-the-bones";
+import { choose, getRandomNumberInRange } from "roll-the-bones";
+import lanternMetrics from "../assets/fonts/Lantern/metrics";
+import birdseedMetrics from "../assets/fonts/Birdseed/metrics";
 import magicbookMetrics from "../assets/fonts/MagicBook/metrics";
 import { EaseFunction, easeLinear, easeOutQuint, easeOutSine } from "./easing";
 import { drawText, registerFont } from "./text";
 import { Position, Size } from "./types";
+import { creatures } from "./creatures";
 
 interface UpdateEvent {
 	time: number;
@@ -20,7 +23,10 @@ interface DrawEvent {
 }
 
 const { canvas, context } = setupCanvas('.game', [1024, 640]);
-registerFont('magicbook', magicbookMetrics, '/assets/fonts/MagicBook/atlas.png');
+registerFont('lantern', lanternMetrics, '/assets/fonts/Lantern/atlas.png');
+registerFont('birdseed', birdseedMetrics, '/assets/fonts/Birdseed/atlas.png');
+registerFont('magicbook', magicbookMetrics, '/assets/fonts/Magicbook/atlas.png');
+const defaultFont = 'birdseed';
 
 let previousTime = 0;
 const loop = new Loop((time: number) => {
@@ -69,8 +75,6 @@ function createGridOfSize(size: Size) {
 
 	return map;
 }
-
-const cardGridPosition = [144, 16];
 
 class Entity {
 	public position: Position = [0, 0];
@@ -134,10 +138,51 @@ class Entity {
 	}
 }
 
-class Board {
+class Board extends Entity {
 	drawPile: Card[] = [];
-	grid: (Card | null)[][] = createGridOfSize([3, 3]);
 	discardPile: Card[] = [];
+	grid: (Card | null)[][] = createGridOfSize([3, 3]);
+
+	private gridPosition: Position = [192, 16];
+	private drawPilePosition: Position = [16, 16];
+	private discardPilePosition: Position = [16, 192];
+
+	draw(event: DrawEvent) {
+		super.draw(event);
+
+		this.grid.forEach((row, x) => {
+			row.forEach((card, y) => {
+				this.drawCardHolder(
+					add(this.gridPosition, multiplyByComponents([x, y], [144, 176])) as Position,
+					event.context
+				);
+			});
+		});
+
+		this.drawCardHolder(this.drawPilePosition, event.context);
+		this.drawCardHolder(this.discardPilePosition, event.context);
+	}
+
+	drawCardHolder(position: Position, context: CanvasRenderingContext2D) {
+		context.strokeRect(
+			position[0] + 3,
+			position[1] + 3,
+			128 - (2 * 3),
+			160 - (2 * 3)
+		);
+	}
+
+	deal() {
+		this.grid.forEach((gridRow, x) => {
+			gridRow.forEach((card, y) => {
+				if (card === null && this.drawPile.length) {
+					const newCard = this.drawPile.shift()!;
+					newCard.isFaceUp = true;
+					this.moveCardToGrid(newCard, [x, y]);
+				}
+			});
+		});
+	}
 
 	getCardInGridPosition(position: Position): Card | undefined {
 		if (!this.hasPosition(position)) {
@@ -181,7 +226,15 @@ class Board {
 		this.removeCardEverywhere(card);
 		this.grid[position[0]][position[1]] = card;
 		card.isFaceUp = true;
-		card.addAnimation(0.25, add(cardGridPosition, multiplyByComponents(position, [144, 176])) as Position, easeOutQuint);
+		card.addAnimation(0.25, add(this.gridPosition, multiplyByComponents(position, [144, 176])) as Position, easeOutQuint);
+	}
+
+	moveToDrawPile(...cards: Card[]) {
+		cards.forEach((card) => {
+			this.removeCardEverywhere(card);
+			this.drawPile.push(card);
+			card.addAnimation(0.25, this.drawPilePosition, easeOutQuint);
+		});
 	}
 
 	removeCardEverywhere(card: Card) {
@@ -218,7 +271,7 @@ class Card extends Entity {
 			drawText(
 				this.properties.name,
 				[ Math.round(this.position[0] + this.size[0] / 2), this.position[1] + 10 ],
-				'magicbook',
+				defaultFont,
 				context,
 				{ baseline: 'top', align: 'center', }
 			);
@@ -227,7 +280,7 @@ class Card extends Entity {
 				drawText(
 					this.properties.description,
 					[ this.position[0] + 5, this.position[1] + 92 ],
-					'magicbook',
+					defaultFont,
 					context,
 					{ baseline: 'top', align: 'left', }
 				);
@@ -249,29 +302,31 @@ class CreatureCard extends Card {
 	draw(drawEvent: DrawEvent) {
 		super.draw(drawEvent);
 
-		drawText(
-			`hp: ${this.properties.health}`,
-			[ this.position[0] + 5, this.position[1] + this.size[1] - 5 ],
-			'magicbook',
-			context,
-			{ baseline: 'bottom', align: 'left', }
-		);
-
-		drawText(
-			`def: ${this.properties.defense}`,
-			[ this.position[0] + (this.size[0] / 2), this.position[1] + this.size[1] - 5 ],
-			'magicbook',
-			context,
-			{ baseline: 'bottom', align: 'center', }
-		);
-
-		drawText(
-			`str: ${this.properties.strength}`,
-			[ this.position[0] + this.size[0] - 5, this.position[1] + this.size[1] - 5 ],
-			'magicbook',
-			context,
-			{ baseline: 'bottom', align: 'right', }
-		);
+		if (this.isFaceUp) {
+			drawText(
+				`hp: ${this.properties.health}`,
+				[ this.position[0] + 5, this.position[1] + this.size[1] - 5 ],
+				defaultFont,
+				context,
+				{ baseline: 'bottom', align: 'left', }
+			);
+	
+			drawText(
+				`def: ${this.properties.defense}`,
+				[ this.position[0] + (this.size[0] / 2), this.position[1] + this.size[1] - 5 ],
+				defaultFont,
+				context,
+				{ baseline: 'bottom', align: 'center', }
+			);
+	
+			drawText(
+				`str: ${this.properties.strength}`,
+				[ this.position[0] + this.size[0] - 5, this.position[1] + this.size[1] - 5 ],
+				defaultFont,
+				context,
+				{ baseline: 'bottom', align: 'right', }
+			);
+		}
 	}
 }
 
@@ -308,7 +363,7 @@ class Dice extends Entity {
 	draw({ context }: DrawEvent) {
 		context.fillStyle = 'white';
 		context.fillRect(this.position[0], this.position[1], 32, 32);
-		drawText(this.value.toString(), add(this.position, [this.size[0] / 2, this.size[1] / 2 - 4]) as Position, 'magicbook', context, { color: '#000000', baseline: 'top', align: 'center' });
+		drawText(this.value.toString(), add(this.position, [this.size[0] / 2, this.size[1] / 2 - 4]) as Position, defaultFont, context, { color: '#000000', baseline: 'top', align: 'center' });
 	}
 
 	async roll(): Promise<number> {
@@ -325,6 +380,9 @@ class Dice extends Entity {
 
 		return new Promise((resolve) => {
 			this.once('result', (value: number) => {
+				setTimeout(() => {
+					entities = arrayWithout(entities, this);
+				}, 1000);
 				resolve(value);
 			});
 		});
@@ -374,30 +432,30 @@ class Dice extends Entity {
 }
 
 let board = new Board();
-let cards: Entity[] = [];
+let entities: Entity[] = [];
 
+function createDeck(ofCards: number): Card[] {
+	const deck: Card[] = [];
+	const creatureOptions = Object.values(creatures);
+	repeat(ofCards, () => {
+		const card = new CreatureCard({
+			type: 'creature',
+			...choose(creatureOptions),
+		});
+		card.isFaceUp = false;
+		deck.push(card);
+	});
+
+	return deck;
+}
 const player = new CreatureCard({
 	name: 'Rogue',
 	type: 'creature',
 	description: 'It\'s you!',
-	defense: 0,
+	defense: 2,
 	strength: 0,
 	health: 4,
-})
-
-const willy = new CreatureCard({
-	name: 'Will \'o the Wisp',
-	type: 'creature',
-	description: 'Reduce the attack of\nnearby creatures by 1.',
-	defense: 3,
-	strength: 1,
-	health: 1,
 });
-
-cards.push(willy);
-cards.push(player);
-board.moveCardToGrid(willy, [2, 0]);
-board.moveCardToGrid(player, [1, 1]);
 
 window.addEventListener('keydown', async (event) => {
 	if (event.repeat) {
@@ -408,7 +466,7 @@ window.addEventListener('keydown', async (event) => {
 		event.preventDefault();
 		const dice = new Dice(6);
 		dice.position = add(player.position, multiplyByScalar(-0.5, dice.size), multiplyByScalar(0.5, player.size)) as Position;
-		cards.push(dice);
+		entities.push(dice);
 		const value = await dice.roll();
 	}
 
@@ -459,8 +517,10 @@ async function actInDirection(board: Board, card: CreatureCard, direction: Posit
 		await attack(card, target);
 
 		if (target.properties.health === 0) {
-			cards = arrayWithout(cards, target);
+			entities = arrayWithout(entities, target);
 			board.removeCardEverywhere(target);
+			board.moveCardToGrid(card, newPosition);
+			board.deal();
 			return;
 		}
 
@@ -471,7 +531,7 @@ async function actInDirection(board: Board, card: CreatureCard, direction: Posit
 async function attack(attacker: CreatureCard, target: CreatureCard) {
 	const dice = new Dice(6);
 	dice.position = add(attacker.position, multiplyByScalar(-0.5, dice.size), multiplyByScalar(0.5, attacker.size)) as Position;
-	cards.push(dice);
+	entities.push(dice);
 	const value = await dice.roll();
 
 	if (value >= target.properties.defense) {
@@ -480,16 +540,25 @@ async function attack(attacker: CreatureCard, target: CreatureCard) {
 }
 
 function update(event: UpdateEvent) {
-	cards.forEach(card => {
-		card.update(event);
+	entities.forEach(entity => {
+		entity.update(event);
 	});
 }
 
 function draw(event: DrawEvent) {
 	clearCanvas(canvas, context, '#ffffff');
-	cards.forEach(card => {
-		card.draw(event);
+	entities.forEach(entity => {
+		entity.draw(event);
 	});
 }
 
 loop.start();
+
+entities.push(board);
+entities.push(player);
+board.moveCardToGrid(player, [1, 1]);
+
+const deck = createDeck(24);
+entities.push(...deck);
+board.moveToDrawPile(...deck);
+board.deal();
