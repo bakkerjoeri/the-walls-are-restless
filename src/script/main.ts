@@ -114,27 +114,28 @@ class Entity {
 			this.currentAnimation.elapsed = this.currentAnimation.elapsed || 0
 		}
 
-		if (this.currentAnimation.elapsed! > this.currentAnimation.duration) {
-			this.currentAnimation = undefined;
-			return;
-		}
-
 		this.position = [
 			Math.round(this.currentAnimation.easeFunction(
-				this.currentAnimation.elapsed!,
+				Math.min(this.currentAnimation.duration, this.currentAnimation.elapsed!),
 				this.currentAnimation.fromPosition![0],
 				this.currentAnimation.toPosition![0] - this.currentAnimation.fromPosition![0],
 				this.currentAnimation.duration,
 			)),
 			Math.round(this.currentAnimation.easeFunction(
-				this.currentAnimation.elapsed!,
+				Math.min(this.currentAnimation.duration, this.currentAnimation.elapsed!),
 				this.currentAnimation.fromPosition![1],
 				this.currentAnimation.toPosition![1] - this.currentAnimation.fromPosition![1],
 				this.currentAnimation.duration,
 			)),
 		];
 
-		this.currentAnimation.elapsed! += elapsed / 1000;
+		if (this.currentAnimation.elapsed! > this.currentAnimation.duration) {
+			this.currentAnimation = undefined;
+			return;
+		} else {			
+			this.currentAnimation.elapsed! += elapsed / 1000;
+		}
+
 	}
 }
 
