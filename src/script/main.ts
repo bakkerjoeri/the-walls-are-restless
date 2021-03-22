@@ -7,7 +7,7 @@ import { choose, getRandomNumberInRange } from "roll-the-bones";
 import lanternMetrics from "../assets/fonts/Lantern/metrics";
 import birdseedMetrics from "../assets/fonts/Birdseed/metrics";
 import magicbookMetrics from "../assets/fonts/MagicBook/metrics";
-import { EaseFunction, easeLinear, easeOutQuint, easeOutSine } from "./easing";
+import { Tweeny, EaseFunction, easeLinear, easeOutQuint, easeOutSine } from "./animations";
 import { drawText, registerFont } from "./text";
 import { Position, Size } from "./types";
 import { creatures } from "./creatures";
@@ -80,62 +80,65 @@ class Entity {
 	public position: Position = [0, 0];
 	public size: Size = [0, 0];
 
+	private isAnimationRunning: boolean = false;
 	private animationQueue: PositionAnimation[] = [];
 	private currentAnimation: PositionAnimation | undefined;
+	private handlers: { [handlerType: string]: Array<(...args: any[]) => any> } = {};
+	private oneTimeHandlers: { [handlerType: string]: Array<(...args: any[]) => any> } = {};
 
-	update({ time, elapsed }: UpdateEvent) {
-		this.doAnimation(time, elapsed);
+	public update({ time, elapsed }: UpdateEvent) {}
+	public draw(event: DrawEvent) {}
+
+	public async addAnimation(duration: number, toPosition: Position, easeFunction: EaseFunction = easeLinear): Promise<void> {
+		const xAnimation = new Tweeny(this.position[0], toPosition[0], duration, (x) => { this.position[0] = Math.round(x); }, easeFunction);
+		const yAnimation = new Tweeny(this.position[1], toPosition[1], duration, (y) => { this.position[1] = Math.round(y); }, easeFunction);
+
+		await Promise.all([
+			xAnimation.animate(),
+			yAnimation.animate(),
+		]);
 	}
 
-	draw(event: DrawEvent) {}
-
-	public addAnimation(duration: number, toPosition: Position, easeFunction: EaseFunction = easeLinear) {
-		this.animationQueue.push({
-			duration,
-			easeFunction,
-			toPosition,
-		});
-	}
-
-	public cancelAnimations() {
-		this.currentAnimation = undefined;
-		this.animationQueue = [];
-	}
-
-	private doAnimation(time: number, elapsed: number) {
-		if (!this.currentAnimation && !this.animationQueue.length) {
-			return;
+	public once(name: string, handler: (...args: any[]) => any) {
+		if (!this.oneTimeHandlers[name]) {
+			this.oneTimeHandlers[name] = [];
 		}
 
-		if (!this.currentAnimation) {
-			this.currentAnimation = this.animationQueue.shift() as PositionAnimation;
-			this.currentAnimation.fromPosition = [...this.position];
-			this.currentAnimation.startTime = time;
-			this.currentAnimation.elapsed = this.currentAnimation.elapsed || 0
+		this.oneTimeHandlers[name].push(handler);
+	}
+
+	public on(name: string, handler: () => any) {
+		if (!this.handlers[name]) {
+			this.handlers[name] = [];
 		}
 
-		this.position = [
-			Math.round(this.currentAnimation.easeFunction(
-				Math.min(this.currentAnimation.duration, this.currentAnimation.elapsed!),
-				this.currentAnimation.fromPosition![0],
-				this.currentAnimation.toPosition![0] - this.currentAnimation.fromPosition![0],
-				this.currentAnimation.duration,
-			)),
-			Math.round(this.currentAnimation.easeFunction(
-				Math.min(this.currentAnimation.duration, this.currentAnimation.elapsed!),
-				this.currentAnimation.fromPosition![1],
-				this.currentAnimation.toPosition![1] - this.currentAnimation.fromPosition![1],
-				this.currentAnimation.duration,
-			)),
+		this.handlers[name].push(handler);
+	}
+
+	public removeEventHandler(name: string, handler: (...args: any[]) => any) {
+		if (this.handlers[name]) {
+			this.handlers = arrayWithout(this.handlers as any, handler) as any;
+		}
+
+		if (this.oneTimeHandlers[name]) {
+			this.oneTimeHandlers = arrayWithout(this.oneTimeHandlers as any, handler) as any;
+		}
+	}
+
+	public removeAllEventHandlers(name: string) {
+		this.oneTimeHandlers = objectWithout(this.oneTimeHandlers, name);
+		this.handlers = objectWithout(this.handlers, name);
+	}
+
+	public trigger(name: string, ...args: any[]) {
+		const handlers = [
+			...(this.handlers[name] || []),
+			...(this.oneTimeHandlers[name] || [])
 		];
 
-		if (this.currentAnimation.elapsed! > this.currentAnimation.duration) {
-			this.currentAnimation = undefined;
-			return;
-		} else {			
-			this.currentAnimation.elapsed! += elapsed / 1000;
-		}
-
+		this.oneTimeHandlers = objectWithout(this.oneTimeHandlers, name);
+		
+		handlers.forEach(handler => handler(...args));
 	}
 }
 
@@ -175,7 +178,7 @@ class Board extends Entity {
 
 	deal() {
 		this.grid.forEach((gridRow, x) => {
-			gridRow.forEach((card, y) => {
+			gridRow.forEach(async (card, y) => {
 				if (card === null && this.drawPile.length) {
 					const newCard = this.drawPile.shift()!;
 					newCard.isFaceUp = true;
@@ -227,14 +230,22 @@ class Board extends Entity {
 		this.removeCardEverywhere(card);
 		this.grid[position[0]][position[1]] = card;
 		card.isFaceUp = true;
-		card.addAnimation(0.25, add(this.gridPosition, multiplyByComponents(position, [144, 176])) as Position, easeOutQuint);
+		card.addAnimation(250, add(this.gridPosition, multiplyByComponents(position, [144, 176])) as Position, easeOutQuint);
 	}
 
 	moveToDrawPile(...cards: Card[]) {
 		cards.forEach((card) => {
 			this.removeCardEverywhere(card);
 			this.drawPile.push(card);
-			card.addAnimation(0.25, this.drawPilePosition, easeOutQuint);
+			card.addAnimation(250, this.drawPilePosition, easeOutQuint);
+		});
+	}
+
+	discard(...cards: Card[]) {
+		cards.forEach((card) => {
+			this.removeCardEverywhere(card);
+			this.discardPile.push(card);
+			card.addAnimation(250, this.discardPilePosition, easeOutQuint);
 		});
 	}
 
@@ -336,9 +347,6 @@ class Dice extends Entity {
 	public sides = 6;
 	public value = 0;
 
-	private handlers: { [handlerType: string]: Array<(...args: any[]) => any> } = {};
-	private oneTimeHandlers: { [handlerType: string]: Array<(...args: any[]) => any> } = {};
-
 	private isRolling = false;
 	private rollDuration = 0;
 
@@ -356,12 +364,14 @@ class Dice extends Entity {
 		}
 
 		if (this.isRolling && this.rollDuration > 0) {
-			this.rollDuration = Math.max(0, this.rollDuration - (event.elapsed / 1000));
+			this.rollDuration = Math.max(0, this.rollDuration - event.elapsed);
 			this.value = getRandomNumberInRange(1, this.sides);
 		}
 	}
 
 	draw({ context }: DrawEvent) {
+		context.fillStyle = 'black';
+		context.strokeRect(this.position[0], this.position[1], 32, 32)
 		context.fillStyle = 'white';
 		context.fillRect(this.position[0], this.position[1], 32, 32);
 		drawText(this.value.toString(), add(this.position, [this.size[0] / 2, this.size[1] / 2 - 4]) as Position, defaultFont, context, { color: '#000000', baseline: 'top', align: 'center' });
@@ -369,7 +379,7 @@ class Dice extends Entity {
 
 	async roll(): Promise<number> {
 		this.isRolling = true;
-		this.rollDuration = 0.5;
+		this.rollDuration = 500;
 		this.addAnimation(
 			this.rollDuration,
 			add(this.position, [
@@ -387,48 +397,6 @@ class Dice extends Entity {
 				resolve(value);
 			});
 		});
-	}
-
-	once(name: string, handler: (...args: any[]) => any) {
-		if (!this.oneTimeHandlers[name]) {
-			this.oneTimeHandlers[name] = [];
-		}
-
-		this.oneTimeHandlers[name].push(handler);
-	}
-
-	on(name: string, handler: () => any) {
-		if (!this.handlers[name]) {
-			this.handlers[name] = [];
-		}
-
-		this.handlers[name].push(handler);
-	}
-
-	removeEventHandler(name: string, handler: (...args: any[]) => any) {
-		if (this.handlers[name]) {
-			this.handlers = arrayWithout(this.handlers as any, handler) as any;
-		}
-
-		if (this.oneTimeHandlers[name]) {
-			this.oneTimeHandlers = arrayWithout(this.oneTimeHandlers as any, handler) as any;
-		}
-	}
-
-	removeAllEventHandlers(name: string) {
-		this.oneTimeHandlers = objectWithout(this.oneTimeHandlers, name);
-		this.handlers = objectWithout(this.handlers, name);
-	}
-
-	trigger(name: string, ...args: any[]) {
-		const handlers = [
-			...(this.handlers[name] || []),
-			...(this.oneTimeHandlers[name] || [])
-		];
-
-		this.oneTimeHandlers = objectWithout(this.oneTimeHandlers, name);
-		
-		handlers.forEach(handler => handler(...args));
 	}
 }
 
@@ -463,7 +431,7 @@ window.addEventListener('keydown', async (event) => {
 		return;
 	}
 
-	if (event.key === 'r') {
+	if (event.key === 'r' && !event.metaKey) {
 		event.preventDefault();
 		const dice = new Dice(6);
 		dice.position = add(player.position, multiplyByScalar(-0.5, dice.size), multiplyByScalar(0.5, player.size)) as Position;
@@ -518,14 +486,13 @@ async function actInDirection(board: Board, card: CreatureCard, direction: Posit
 		await attack(card, target);
 
 		if (target.properties.health === 0) {
-			entities = arrayWithout(entities, target);
-			board.removeCardEverywhere(target);
+			board.discard(target);
 			board.moveCardToGrid(card, newPosition);
 			board.deal();
 			return;
 		}
 
-		attack(target, card);
+		await attack(target, card);
 	}
 }
 
@@ -534,10 +501,35 @@ async function attack(attacker: CreatureCard, target: CreatureCard) {
 	dice.position = add(attacker.position, multiplyByScalar(-0.5, dice.size), multiplyByScalar(0.5, attacker.size)) as Position;
 	entities.push(dice);
 	const value = await dice.roll();
+	await wait(250);
 
 	if (value >= target.properties.defense) {
+		const startPosition = [...attacker.position] as Position;
+		const direction = unit(add(target.position, multiplyByScalar(-1, attacker.position)));
+		const bumpOffset = multiplyByComponents([20, 20], direction);
+		const bumpPosition = add(bumpOffset, attacker.position) as Position;
+
+		await attacker.addAnimation(50, bumpPosition);
 		target.properties.health -= 1;
+		await attacker.addAnimation(100, startPosition);
+		await wait(500);
 	}
+}
+
+function unit(vector: number[]): number[] {
+	return vector.map(component => {
+		if (component === 0) {
+			return 0;
+		}
+
+		return component / Math.abs(component);
+	});
+}
+
+function wait(duration: number) {
+	return new Promise((resolve) => {
+		window.setTimeout(resolve, duration);
+	});
 }
 
 function update(event: UpdateEvent) {
