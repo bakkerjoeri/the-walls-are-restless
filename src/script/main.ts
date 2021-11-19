@@ -516,16 +516,6 @@ async function attack(attacker: CreatureCard, target: CreatureCard) {
 	}
 }
 
-function unit(vector: number[]): number[] {
-	return vector.map(component => {
-		if (component === 0) {
-			return 0;
-		}
-
-		return component / Math.abs(component);
-	});
-}
-
 function wait(duration: number) {
 	return new Promise((resolve) => {
 		window.setTimeout(resolve, duration);
